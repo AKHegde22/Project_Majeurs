@@ -1,11 +1,14 @@
-# app.py - Simplified Neuro-Symbolic UI
+# app.py - Simplified Neuro-Symbolic UI with Clear Sources
 import streamlit as st
 import json
 import time
 import os
 import re
+# Import the model engine
 from llama_cpp import Llama
+# Import the search tool
 from langchain_community.tools import DuckDuckGoSearchRun
+# Import grammar constraint
 from llama_cpp.llama_grammar import LlamaGrammar
 
 # ==========================================
@@ -24,15 +27,30 @@ st.markdown("""
         width: 100%;
         border-radius: 20px;
         height: 3em;
-        background-color: #FF4B4B;
+        background-color: #0E1117;
         color: white;
+        border: 1px solid #30333F;
     }
-    .source-link {
-        padding: 5px;
-        margin: 2px;
-        background-color: #f0f2f6;
-        border-radius: 5px;
-        display: inline-block;
+    .stButton>button:hover {
+        background-color: #262730;
+        border-color: #4F8BF9;
+    }
+    /* Style for source links to make them look professional */
+    a.source-link {
+        color: #4F8BF9 !important;
+        text-decoration: none;
+        font-family: monospace;
+        display: block;
+        padding: 4px 0;
+    }
+    a.source-link:hover {
+        text-decoration: underline;
+    }
+    .report-container {
+        border: 1px solid #e0e0e0;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -40,24 +58,26 @@ st.markdown("""
 # ==========================================
 # 2. BACKEND SETUP
 # ==========================================
+# Path to your local quantized model file
 MODEL_PATH = "./Meta-Llama-3-8B-Instruct.Q4_K_M.gguf"
-N_CTX = 8192
+N_CTX = 8192 # Context window size
 
 @st.cache_resource
 def load_model():
-    """Loads the model once and caches it."""
+    """Loads the model once and caches it to avoid reloading."""
     print(f"[SYSTEM] Loading model from {MODEL_PATH}...")
+    # Initialize Llama model for CPU execution
     llm = Llama(
         model_path=MODEL_PATH,
         n_ctx=N_CTX,
-        n_gpu_layers=-1, # CPU execution
+        n_gpu_layers=-1, # -1 means use CPU for all layers
         verbose=False
     )
     return llm
 
 @st.cache_resource
 def load_grammar():
-    """Defines the GBNF grammar for the JSON action."""
+    """Defines the GBNF grammar to force strictly valid JSON output."""
     gbnf_string = r"""
         root ::= "{" space "\"rationale\"" space ":" space string "," space "\"query\"" space ":" space string "}"
         string ::= "\"" ( [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F]{4}) )* "\""
@@ -65,39 +85,45 @@ def load_grammar():
     """
     return LlamaGrammar.from_string(gbnf_string)
 
-# Initialize tool
+# Initialize the search tool
 search_tool = DuckDuckGoSearchRun()
 
 def extract_links(search_results_text):
-    """Helper to extract URLs from DuckDuckGo text results."""
-    # This is a basic regex for URLs found in the text output
+    """Helper function to extract URLs from search result text."""
+    # Basic regex to find http/https URLs
     url_pattern = r'(https?://\S+)'
     links = re.findall(url_pattern, search_results_text)
-    # Clean up links (remove trailing punctuation often caught by regex)
+    # Clean trailing punctuation often caught by regex
     clean_links = [link.rstrip('.,;)"\']') for link in links]
-    return list(set(clean_links)) # Return unique links
+    # Return unique links only
+    return list(set(clean_links))
 
 # ==========================================
-# 3. CORE AGENT LOGIC (HIDDEN FROM UI)
+# 3. CORE AGENT LOGIC (HIDDEN FROM USER)
 # ==========================================
 def generate_constrained_plan(llm, grammar, objective, context, history):
-    """Neural Planner + Symbolic Gate (Behind the scenes)"""
+    """Phase 1: Neural Planner + Symbolic Grammar Gate"""
     history_str = "\n".join([f"- {q}" for q in history]) if history else "None."
+    # System prompt to guide the agent
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 You are an autonomous research agent. Objective: {objective}. Context: {context}. Past Queries: {history_str}.
-Output a JSON with "rationale" and "query".<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+INSTRUCTIONS: Output a JSON object with keys "rationale" and "query". Output ONLY JSON.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
 
+    # Generate with grammar constraint
     output = llm(prompt, max_tokens=200, grammar=grammar, temperature=0.1)
     text_output = output['choices'][0]['text']
     try:
+        # Parse the guaranteed valid JSON
         return json.loads(text_output)
     except json.JSONDecodeError:
+        # This should theoretically never happen with an active grammar
         return None
 
 def run_critic(llm, query, data):
-    """Neural Critic (Behind the scenes)"""
+    """Phase 3: Neural Critic for Data Verification"""
+    # Discriminative prompt for binary classification
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Query: {query}. Data snippet: {data[:1500]}. Does this contain relevant facts? Answer strictly YES or NO.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+Query: {query}. Data snippet: {data[:1500]}. Does this snippet contain relevant facts to answer the query? Answer strictly YES or NO.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
     output = llm(prompt, max_tokens=10)
     decision = output['choices'][0]['text'].strip().upper()
     return "YES" in decision
@@ -106,75 +132,93 @@ Query: {query}. Data snippet: {data[:1500]}. Does this contain relevant facts? A
 # 4. MAIN UI LAYOUT
 # ==========================================
 st.title("🧠 Neuro-Symbolic Deep Research")
-st.caption("Powered by local Llama-3-8B with Grammar Constraints.")
+st.caption("Autonomous agent powered by local Llama-3-8B with Grammar Constraints.")
 
-# --- Sidebar Settings ---
+# --- Sidebar for Settings ---
 with st.sidebar:
-    st.header("Settings")
-    max_iter = st.slider("Research Depth (Iterations)", min_value=2, max_value=7, value=4)
+    st.header("Configuration")
+    # Slider to control how many research steps the agent takes
+    max_iter = st.slider("Research Depth (Iterations)", min_value=2, max_value=7, value=4, help="More iterations allow for deeper, multi-hop research but take longer.")
+    st.divider()
+    st.markdown("**Framework Status:** Ready")
+    st.caption(f"Model: {os.path.basename(MODEL_PATH)}")
 
-# --- Input Area ---
-user_query = st.text_area("What would you like to research?", height=100, 
-                         value="Identify the host city for the 2028 Summer Olympics. Then, find the average temperature in that city during the month of July. Finally, suggest three outdoor Olympic events suitable for that specific weather.")
-run_button = st.button("Start Research")
+# --- Main Input Area ---
+user_query = st.text_area("Enter your research objective:", height=100, 
+                         value="Identify the host city for the 2028 Summer Olympics. Then, find the average temperature in that city during the month of July. Finally, suggest three outdoor Olympic events suitable for that specific weather.",
+                         help="Describe the complex, multi-step information you want the agent to find.")
+
+# The main action button
+run_button = st.button("Initiate Deep Research Cycle")
 
 # --- Main Execution Logic ---
 if run_button:
-    # Initialize State
+    # Initialize internal state variables
     context_text = "No knowledge gathered yet."
     history_list = []
-    sources_list = []
+    sources_list = [] # To store URLs
     
-    # Load backend quietly
+    # Load backend components (cached so it's fast after first run)
     llm_engine = load_model()
     grammar_engine = load_grammar()
         
-    # THE RECURSIVE LOOP (Hidden behind a single spinner)
-    with st.spinner("Performing deep research... This may take a few minutes."):
+    # THE RECURSIVE LOOP (Hidden behind a single loading spinner)
+    with st.spinner("Performing autonomous deep research... Please wait, this requires significant on-device computation."):
         start_time = time.time()
+        # Main loop controlled by max_iter setting
         for i in range(max_iter):
-            # 1. Planner & Grammar
+            # --- Step 1: Plan & Constrain ---
             action_json = generate_constrained_plan(llm_engine, grammar_engine, user_query, context_text, history_list)
-            if not action_json: break
+            if not action_json: break # Stop if planning fails entirely
             query = action_json.get('query')
+            # Prevent infinite loops by checking history
             if query in history_list: continue
             history_list.append(query)
 
-            # 2. Tool Execution & Link Extraction
+            # --- Step 2: Execute Tool & Capture Sources ---
             try:
                 search_result = search_tool.run(query)
-                # Extract links for evidence display
+                # Extract URLs from the raw text result for evidence
                 links = extract_links(search_result)
                 sources_list.extend(links)
             except Exception:
-                search_result = ""
+                search_result = "" # Handle tool failures gracefully
 
-            # 3. Critic
+            # --- Step 3: Verify Data (Critic) ---
+            # Only add data to context if the Critic marks it as relevant ("YES")
             if search_result and run_critic(llm_engine, query, search_result):
                 snippet = search_result[:1000] + "..."
                 context_text += f"\n[Fact]: {snippet}"
 
-        # Final Synthesis
+        # --- Final Step: Synthesize Answer ---
+        # Prompt the model to act as a final analyst using only gathered facts
         final_prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Synthesize a comprehensive answer based ONLY on these notes: {context_text}. User Question: {user_query}. Use Markdown formatting.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+You are a senior research analyst. Synthesize a comprehensive, well-structured answer based ONLY on the following verified notes. Do not use outside knowledge. User Question: {user_query}. Notes: {context_text}. Use Markdown formatting for the final report.<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
         final_output = llm_engine(final_prompt, max_tokens=1500)
         result_text = final_output['choices'][0]['text']
         total_time = time.time() - start_time
 
     # ===========================
-    # RESULTS DISPLAY
+    # RESULTS DISPLAY SECTION
     # ===========================
     st.divider()
-    st.subheader("Research Report")
-    st.caption(f"Completed in {total_time:.2f} seconds.")
+    st.subheader("Final Research Report")
+    st.caption(f"Generative cycle completed in {total_time:.2f} seconds based on {len(history_list)} distinct search actions.")
     
-    # Display Sources first to prove authenticity
+    # 1. Display the Final Answer
+    with st.container():
+        st.markdown(f'<div class="report-container">{result_text}</div>', unsafe_allow_html=True)
+
+    # 2. Display Sources in a separate, clear section below
     if sources_list:
-        with st.expander("📚 Research Sources Used (Evidence)", expanded=False):
-            unique_sources = list(set(sources_list))
-            for link in unique_sources:
-                st.markdown(f'<a href="{link}" target="_blank" class="source-link">🔗 {link}</a>', unsafe_allow_html=True)
-    
-    # Display Final Answer
-    st.markdown(result_text)
-    st.balloons()
+        st.subheader("📚 Verified Research Sources")
+        st.markdown("The agent extracted data from the following external URLs during its research cycle:")
+        # De-duplicate links so the list is clean
+        unique_sources = sorted(list(set(sources_list)))
+        source_container = st.container()
+        with source_container:
+            for i, link in enumerate(unique_sources):
+                # Create a clean, numbered list of clickable links
+                st.markdown(f'{i+1}. <a href="{link}" target="_blank" class="source-link">{link}</a>', unsafe_allow_html=True)
+    else:
+        st.warning("No external sources were successfully verified by the critic during this run.")
