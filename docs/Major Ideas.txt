@@ -28,3 +28,13 @@ Hierarchical RL for Multi-Modal Data: Implement an RL system that processes imag
 4. Temporal Graph Networks for Epidemic Forecasting
 
 5. Multimodal Fusion for Mental Health Monitoring
+
+
+
+
+
+"Welcome to our project exhibition. We are excited to present our work on the Neuro-Symbolic Framework for Deep Research using a 7B-parameter model, which we believe addresses a significant challenge in the field of autonomous AI agents. Before we dive into the details of our project, I would like to provide a brief overview of the problem we are trying to solve and the approach we have taken.
+
+The core problem we address is the reliability of Small Language Models (SLMs), specifically those with around 7 billion parameters, when performing complex, autonomous tasks like deep research. While these models are efficient and can run on standard hardware, they often lack the structural discipline to reliably interact with external tools and maintain coherence over multi-step processes. They frequently generate invalid commands or get distracted by irrelevant information.
+
+Our approach to solving this is a neuro-symbolic one. We combine the powerful, probabilistic reasoning capabilities of the neural network with the strict, deterministic rules of symbolic AI. Specifically, we use a technique called Grammar-Constrained Decoding to force the model to always output syntactically valid commands for tools. We also implement a recursive 'Critic-Planner' loop where the model evaluates the relevance of information it finds before using it, keeping its focus on the user's goal. This framework allows us to unlock the potential of these smaller models for complex, autonomous research without the need for expensive and time-consuming fine-tuning."
